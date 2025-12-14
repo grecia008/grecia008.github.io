@@ -1,0 +1,217 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Pastel Flappy Bird – Map Edition</title>
+<style>
+body{margin:0;background:#fdeaff;display:flex;justify-content:center;align-items:center;height:100vh;font-family:Arial}
+canvas{background:linear-gradient(#ffe6f2,#e6f7ff);border-radius:20px;border:4px solid #ffb6e6}
+#ui{position:absolute;top:8px;background:#fff0fa;padding:8px 12px;border-radius:14px;border:2px solid #ffb6e6;font-size:12px;text-align:center}
+#ui button{margin:2px;padding:4px 6px;border-radius:8px;border:none;background:#ffd6ec;cursor:pointer}
+#jumpBtn{position:absolute;bottom:16px;right:16px;padding:14px 18px;border-radius:999px;border:none;background:#ffb6e6;font-size:18px}
+#title{position:absolute;top:10px;left:10px;font-weight:bold;color:#ff7ad9;background:#fff0fa;padding:6px 10px;border-radius:12px;border:2px solid #ffb6e6;font-size:14px}
+</style>
+</head>
+<body>
+<div id="title">Flappy Bird🐦✨</div>
+
+<div id="ui">
+<div>Score: <span id="score">0</span> | High: <span id="high">0</span></div>
+<div>Koin: <span id="coin">0</span></div>
+<div>
+Map:
+<button onclick="setMap('day')">🌤️</button>
+<button onclick="setMap('night')">🌙</button>
+<button onclick="setMap('rain')">🌧️</button>
+</div>
+<div>
+Karakter:<br>
+<button onclick="selectChar('bird')">🐦</button>
+<button onclick="selectChar('rabbit')">🐰</button>
+<button onclick="selectChar('chick')">🐥</button>
+<button onclick="selectChar('fairy')">🧚</button>
+<button onclick="selectChar('ghost')">👻</button>
+<button onclick="selectChar('dragon')">🐲</button>
+<button onclick="selectChar('robot')">🤖</button>
+</div>
+<div>
+<button onclick="toggleMusic()">🎵</button>
+</div>
+<div id="ach"></div>
+</div>
+
+<canvas id="game" width="360" height="540"></canvas>
+<button id="jumpBtn">⬆️</button>
+
+<script>
+const canvas=document.getElementById('game');
+const ctx=canvas.getContext('2d');
+const scoreEl=document.getElementById('score');
+const highEl=document.getElementById('high');
+const coinEl=document.getElementById('coin');
+const achEl=document.getElementById('ach');
+const jumpBtn=document.getElementById('jumpBtn');
+
+let bird={x:80,y:270,v:0,r:14,scale:1,effect:null,shield:false,phase:0};
+let gravity=0.45,lift=-9,speed=2,pipeGap=180;
+let pipes=[],coins=[],raindrops=[],clouds=[],stars=[];
+let score=0,coin=Number(localStorage.getItem('coin')||0);
+let high=Number(localStorage.getItem('high')||0);
+let gameOver=false;
+let currentMap='day';
+
+highEl.textContent=high;
+coinEl.textContent=coin;
+
+// MUSIC
+let audioCtx=null,osc=null,music=false;
+function toggleMusic(){
+ if(!audioCtx) audioCtx=new (window.AudioContext||window.webkitAudioContext)();
+ if(!music){
+  osc=audioCtx.createOscillator();
+  let g=audioCtx.createGain();
+  osc.frequency.value=220;
+  g.gain.value=.03;
+  osc.connect(g).connect(audioCtx.destination);
+  osc.start();music=true;
+ }else{osc.stop();music=false}
+}
+
+const characters={
+ bird:{emoji:'🐦',scale:1,effect:null},
+ rabbit:{emoji:'🐰',scale:1.1,effect:'float'},
+ chick:{emoji:'🐥',scale:0.8,effect:'small'},
+ fairy:{emoji:'🧚',scale:0.9,effect:'slow'},
+ ghost:{emoji:'👻',scale:1,effect:'phase'},
+ dragon:{emoji:'🐲',scale:1.2,effect:'power'},
+ robot:{emoji:'🤖',scale:1.1,effect:'shield'}
+};
+let charKey='bird';
+
+function selectChar(k){
+ const c=characters[k];charKey=k;
+ bird.scale=c.scale;bird.effect=c.effect;
+ bird.shield=(c.effect==='shield');
+ bird.phase=(c.effect==='phase')?1:0;
+ ach('Pakai '+c.emoji);
+}
+
+function setMap(m){currentMap=m;raindrops=[];clouds=[];stars=[];}
+
+function spawnPipe(){
+ const top=Math.random()*(canvas.height-pipeGap-120)+60;
+ pipes.push({x:canvas.width,top:top,bottom:top+pipeGap,passed:false});
+}
+
+function spawnCoin(){coins.push({x:canvas.width,y:Math.random()*300+80})}
+
+function spawnRain(){
+ raindrops.push({x:Math.random()*canvas.width,y:-10,s:Math.random()*4+4});
+}
+
+function spawnCloud(){
+ clouds.push({x:canvas.width,y:Math.random()*200+20,s:0.4,emoji:'☁️'});
+}
+
+function spawnStar(){
+ stars.push({x:Math.random()*canvas.width,y:Math.random()*200+20});
+}
+
+setInterval(()=>!gameOver&&spawnPipe(),2200);
+setInterval(()=>!gameOver&&spawnCoin(),3000);
+setInterval(()=>currentMap==='rain'&&!gameOver&&spawnRain(),200);
+setInterval(()=>currentMap!=='night'&&!gameOver&&spawnCloud(),2600);
+setInterval(()=>currentMap==='night'&&!gameOver&&spawnStar(),800);
+
+function flap(){if(gameOver)reset();bird.v=lift}
+document.addEventListener('keydown',e=>e.code==='Space'&&flap());
+canvas.onclick=flap;jumpBtn.onclick=flap;
+
+function reset(){pipes=[];coins=[];raindrops=[];clouds=[];stars=[];score=0;bird.y=270;bird.v=0;gameOver=false;scoreEl.textContent=0}
+
+function update(){
+ if(gameOver)return;
+ let g=gravity;
+ if(bird.effect==='float') g*=0.4;
+ bird.v+=g;bird.y+=bird.v;
+
+ let timeScale=(bird.effect==='slow')?0.6:1;
+ pipes.forEach(p=>{
+  p.x-=speed*timeScale;
+  if(!p.passed&&p.x<bird.x){score++;scoreEl.textContent=score;p.passed=true}
+ });
+ coins.forEach(c=>c.x-=speed*timeScale);
+ raindrops.forEach(r=>{r.y+=r.s;r.x-=1});
+ clouds.forEach(c=>c.x-=c.s);
+
+ let hit=bird.r*bird.scale;
+ if(bird.effect==='small') hit*=0.8;
+
+ pipes.forEach(p=>{
+  if(bird.x+hit>p.x&&bird.x-hit<p.x+40&&(bird.y-hit<p.top||bird.y+hit>p.bottom)){
+   if(bird.shield){bird.shield=false;ach('🛡️ Shield pecah');return}
+   if(bird.effect==='phase'&&bird.phase>0){bird.phase--;ach('👻 Tembus');return}
+   gameOver=true;
+  }
+ });
+
+ coins.forEach((c,i)=>{
+  if(Math.hypot(bird.x-c.x,bird.y-c.y)<18){
+   coin++;coinEl.textContent=coin;
+   localStorage.setItem('coin',coin);
+   coins.splice(i,1)
+  }
+ });
+
+ if(bird.y<0||bird.y>canvas.height)gameOver=true;
+ pipes=pipes.filter(p=>p.x>-60);
+ coins=coins.filter(c=>c.x>-40);
+ raindrops=raindrops.filter(r=>r.y<canvas.height+20);
+ clouds=clouds.filter(c=>c.x>-60);
+ stars=stars.slice(-80);
+
+ if(gameOver&&score>high){high=score;localStorage.setItem('high',high);highEl.textContent=high}
+}
+
+function draw(){
+ // MAP BACKGROUND
+ if(currentMap==='day'){
+  ctx.fillStyle='#ffe6f2';ctx.fillRect(0,0,canvas.width,canvas.height);
+ }
+ if(currentMap==='night'){
+  ctx.fillStyle='#2c2c54';ctx.fillRect(0,0,canvas.width,canvas.height);
+ }
+ if(currentMap==='rain'){
+  ctx.fillStyle='#b8d8ff';ctx.fillRect(0,0,canvas.width,canvas.height);
+ }
+
+ stars.forEach(s=>{ctx.fillStyle='#fff';ctx.fillRect(s.x,s.y,2,2)});
+ clouds.forEach(c=>{ctx.font='28px Arial';ctx.fillText(c.emoji,c.x,c.y)});
+
+ pipes.forEach(p=>{ctx.fillStyle='#ffc1e3';ctx.fillRect(p.x,0,40,p.top);ctx.fillRect(p.x,p.bottom,40,canvas.height)});
+
+ coins.forEach(c=>{
+  ctx.fillStyle='#f9d84a';ctx.beginPath();ctx.arc(c.x,c.y,8,0,Math.PI*2);ctx.fill();
+  ctx.strokeStyle='#f2b705';ctx.stroke();
+ });
+
+ raindrops.forEach(r=>{ctx.strokeStyle='#6aa9ff';ctx.beginPath();ctx.moveTo(r.x,r.y);ctx.lineTo(r.x,r.y+8);ctx.stroke()});
+
+ const c=characters[charKey];
+ ctx.save();ctx.translate(bird.x,bird.y);ctx.scale(bird.scale,bird.scale);
+ if(bird.effect==='power'){ctx.shadowColor='#ff7ad9';ctx.shadowBlur=12}
+ if(bird.effect==='phase')ctx.globalAlpha=0.8;
+ ctx.font='24px Arial';ctx.fillText(c.emoji,-12,10);
+ if(bird.shield){ctx.strokeStyle='#7afcff';ctx.beginPath();ctx.arc(0,0,20,0,Math.PI*2);ctx.stroke()}
+ ctx.restore();
+
+ if(gameOver){ctx.fillStyle='#ff7ad9';ctx.font='22px Arial';ctx.fillText('Game Over',110,260)}
+}
+
+function ach(t){achEl.textContent=t;setTimeout(()=>achEl.textContent='',1500)}
+
+(function loop(){update();draw();requestAnimationFrame(loop)})();
+</script>
+</body>
+</html>
